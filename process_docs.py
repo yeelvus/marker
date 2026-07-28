@@ -106,6 +106,39 @@ def load_dotenv_files() -> None:
             pass
 
 
+def ensure_surya_llamacpp_grammar_patch() -> None:
+    """
+    Mac/llama.cpp 上 balanced 模式需要此补丁，否则 layout 全失败、输出空白。
+    上游: https://github.com/datalab-to/surya/pull/539
+    """
+    try:
+        import surya  # type: ignore
+    except Exception:
+        return
+    prompts = Path(surya.__file__).resolve().parent / "inference" / "prompts.py"
+    if not prompts.is_file():
+        return
+    try:
+        text = prompts.read_text(encoding="utf-8")
+    except Exception:
+        return
+    old = r'r"^\d{1,4} \d{1,4} \d{1,4} \d{1,4}$"'
+    new = r'r"^[0-9]{1,4} [0-9]{1,4} [0-9]{1,4} [0-9]{1,4}$"'
+    if old not in text:
+        return
+    try:
+        bak = prompts.with_suffix(".py.bak")
+        if not bak.exists():
+            bak.write_text(text, encoding="utf-8")
+        prompts.write_text(text.replace(old, new), encoding="utf-8")
+        print(
+            "[INFO] 已自动修补 surya bbox schema（\\d→[0-9]），"
+            "修复 Mac balanced 模式 layout 失败问题。"
+        )
+    except Exception as e:
+        print(f"[WARN] 无法自动修补 surya: {e}", file=sys.stderr)
+
+
 def resolve_llm_service(name: str) -> str:
     name = (name or "gemini").strip()
     if name in LLM_SERVICES:
@@ -287,6 +320,14 @@ def main() -> int:
     os.environ.setdefault("SURYA_INFERENCE_BACKEND", "llamacpp")
     # MPS 小模型 + 兼容回退
     os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")
+
+    # balanced 依赖 VLM layout；未修补时 Mac 上会整页空白
+    ensure_surya_llamacpp_grammar_patch()
+    if args.mode == "balanced":
+        print(
+            "[INFO] balanced 模式在 Mac 上较慢且更吃内存；"
+            "若仍异常请改用 --mode fast。"
+        )
 
     llm_err = check_llm_ready(args)
     if llm_err:

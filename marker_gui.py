@@ -54,8 +54,8 @@ SUPPORTED_EXTS = {
 }
 
 MODE_OPTIONS = [
-    ("fast", "fast（推荐 Mac：更快，CPU/MPS 默认）"),
-    ("balanced", "balanced（更高精度，更吃资源）"),
+    ("fast", "fast（推荐 Mac：更快更稳，一般电子 PDF 优先用这个）"),
+    ("balanced", "balanced（VLM 布局+OCR，更慢；Mac 需 surya 补丁）"),
 ]
 
 FORMAT_OPTIONS = ["markdown", "json", "html", "chunks"]
