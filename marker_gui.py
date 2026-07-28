@@ -60,6 +60,12 @@ MODE_OPTIONS = [
 
 FORMAT_OPTIONS = ["markdown", "json", "html", "chunks"]
 
+PRESET_OPTIONS = [
+    ("balanced", "balanced（默认：质量/速度均衡）"),
+    ("speed", "speed（最快：低 DPI、不抽图、长文分页块）"),
+    ("quality", "quality（最准：balanced 模式，更慢）"),
+]
+
 LLM_SERVICE_OPTIONS = [
     ("gemini", "Gemini（需 GOOGLE_API_KEY）"),
     ("openai", "OpenAI 兼容（需 OPENAI_API_KEY）"),
@@ -127,10 +133,12 @@ class MarkerGUI:
         self.input_path = StringVar()
         self.output_path = StringVar(value=str(DEFAULT_OUTPUT))
         self.mode = StringVar(value="fast")
+        self.preset = StringVar(value="balanced")
         self.output_format = StringVar(value="markdown")
         self.disable_ocr = BooleanVar(value=False)
         self.force_ocr = BooleanVar(value=False)
         self.use_llm = BooleanVar(value=False)
+        self.disable_image_extraction = BooleanVar(value=False)
         self.llm_service = StringVar(value="gemini")
         self.gemini_api_key = StringVar(
             value=(
@@ -141,6 +149,7 @@ class MarkerGUI:
         )
         self.skip_existing = BooleanVar(value=False)
         self.one_by_one = BooleanVar(value=False)
+        self.chunk_pages = StringVar(value="0")  # 0=跟随预设；speed 默认 8
         self.running = False
         self.proc: subprocess.Popen | None = None
         self.log_queue: queue.Queue[str] = queue.Queue()
@@ -189,7 +198,20 @@ class MarkerGUI:
         g = ttk.Frame(opts)
         g.pack(fill="x")
 
-        ttk.Label(g, text="模式:").grid(row=0, column=0, sticky="w", padx=4, pady=4)
+        ttk.Label(g, text="性能预设:").grid(row=0, column=0, sticky="w", padx=4, pady=4)
+        preset_combo = ttk.Combobox(
+            g,
+            textvariable=self.preset,
+            values=[p[0] for p in PRESET_OPTIONS],
+            state="readonly",
+            width=18,
+        )
+        preset_combo.grid(row=0, column=1, sticky="w", padx=4, pady=4)
+        self.preset_hint = ttk.Label(g, text=PRESET_OPTIONS[0][1], foreground="#666")
+        self.preset_hint.grid(row=0, column=2, sticky="w", padx=4, pady=4)
+        preset_combo.bind("<<ComboboxSelected>>", self._on_preset_change)
+
+        ttk.Label(g, text="模式:").grid(row=1, column=0, sticky="w", padx=4, pady=4)
         mode_combo = ttk.Combobox(
             g,
             textvariable=self.mode,
@@ -197,38 +219,54 @@ class MarkerGUI:
             state="readonly",
             width=18,
         )
-        mode_combo.grid(row=0, column=1, sticky="w", padx=4, pady=4)
+        mode_combo.grid(row=1, column=1, sticky="w", padx=4, pady=4)
         self.mode_hint = ttk.Label(g, text=MODE_OPTIONS[0][1], foreground="#666")
-        self.mode_hint.grid(row=0, column=2, sticky="w", padx=4, pady=4)
+        self.mode_hint.grid(row=1, column=2, sticky="w", padx=4, pady=4)
         mode_combo.bind("<<ComboboxSelected>>", self._on_mode_change)
 
-        ttk.Label(g, text="输出格式:").grid(row=1, column=0, sticky="w", padx=4, pady=4)
+        ttk.Label(g, text="输出格式:").grid(row=2, column=0, sticky="w", padx=4, pady=4)
         ttk.Combobox(
             g,
             textvariable=self.output_format,
             values=FORMAT_OPTIONS,
             state="readonly",
             width=18,
-        ).grid(row=1, column=1, sticky="w", padx=4, pady=4)
+        ).grid(row=2, column=1, sticky="w", padx=4, pady=4)
         ttk.Label(g, text="一般选 markdown", foreground="#666").grid(
-            row=1, column=2, sticky="w", padx=4, pady=4
+            row=2, column=2, sticky="w", padx=4, pady=4
         )
+
+        ttk.Label(g, text="分页块页数:").grid(row=3, column=0, sticky="w", padx=4, pady=4)
+        ttk.Combobox(
+            g,
+            textvariable=self.chunk_pages,
+            values=["0", "4", "8", "12", "16"],
+            width=18,
+        ).grid(row=3, column=1, sticky="w", padx=4, pady=4)
+        ttk.Label(
+            g,
+            text=">0 时长 PDF 分块处理，输出目录会逐步出现 .md（0=整份）",
+            foreground="#666",
+        ).grid(row=3, column=2, sticky="w", padx=4, pady=4)
 
         flags = ttk.Frame(opts)
         flags.pack(fill="x", pady=(6, 0))
         ttk.Checkbutton(
-            flags, text="禁用 OCR（最快，纯文本层）", variable=self.disable_ocr
+            flags, text="禁用 OCR（电子 PDF 最快）", variable=self.disable_ocr
         ).pack(side="left", padx=8)
         ttk.Checkbutton(flags, text="强制 OCR", variable=self.force_ocr).pack(
             side="left", padx=8
         )
+        ttk.Checkbutton(
+            flags, text="不提取图片（更快）", variable=self.disable_image_extraction
+        ).pack(side="left", padx=8)
         ttk.Checkbutton(
             flags, text="使用 LLM 增强（需 API Key）", variable=self.use_llm
         ).pack(side="left", padx=8)
         ttk.Checkbutton(flags, text="跳过已有输出", variable=self.skip_existing).pack(
             side="left", padx=8
         )
-        ttk.Checkbutton(flags, text="逐个处理（省内存）", variable=self.one_by_one).pack(
+        ttk.Checkbutton(flags, text="逐个处理", variable=self.one_by_one).pack(
             side="left", padx=8
         )
 
@@ -297,18 +335,39 @@ class MarkerGUI:
         self._log(f"Python: {find_python_bin()}")
         self._log(f"处理脚本: {PROCESS_SCRIPT}")
         self._log("请选择文件或文件夹，然后点击「开始处理」。")
-        self._log("Mac 推荐：模式 fast；扫描件可开「强制 OCR」；纯电子档可开「禁用 OCR」提速。")
+        self._log(
+            "加速建议：预设 speed；电子 PDF 勾选「禁用 OCR」；"
+            "分页块>0 可在输出目录看到逐步生成的进度。"
+        )
+        self._log(
+            "处理中请打开输出目录查看 _marker_progress.md 与 文件名/_processing.txt。"
+        )
         if has_gemini_key() or self.gemini_api_key.get().strip():
             self._log("已检测到 Gemini API Key（可用 LLM 增强）。")
         else:
             self._log(
-                "未配置 Gemini API Key：请勿勾选「使用 LLM 增强」，"
-                "或不增强也能正常转 Markdown。\n"
+                "未配置 Gemini API Key：请勿勾选「使用 LLM 增强」。\n"
             )
 
     def _on_mode_change(self, _event=None) -> None:
         mapping = {m[0]: m[1] for m in MODE_OPTIONS}
         self.mode_hint.config(text=mapping.get(self.mode.get(), ""))
+
+    def _on_preset_change(self, _event=None) -> None:
+        mapping = {p[0]: p[1] for p in PRESET_OPTIONS}
+        self.preset_hint.config(text=mapping.get(self.preset.get(), ""))
+        p = self.preset.get()
+        if p == "speed":
+            self.mode.set("fast")
+            self.disable_image_extraction.set(True)
+            if self.chunk_pages.get() in ("", "0"):
+                self.chunk_pages.set("8")
+        elif p == "quality":
+            self.mode.set("balanced")
+            self.disable_image_extraction.set(False)
+        elif p == "balanced":
+            self.mode.set("fast")
+        self._on_mode_change()
 
     def _pick_file(self) -> None:
         path = filedialog.askopenfilename(
@@ -445,6 +504,8 @@ class MarkerGUI:
             str(in_path),
             "-o",
             str(out_path),
+            "--preset",
+            self.preset.get(),
             "--mode",
             self.mode.get(),
             "--output_format",
@@ -454,6 +515,11 @@ class MarkerGUI:
             cmd.append("--disable_ocr")
         if self.force_ocr.get():
             cmd.append("--force_ocr")
+        if self.disable_image_extraction.get():
+            cmd.append("--disable_image_extraction")
+        else:
+            # 覆盖 speed 预设默认不抽图
+            cmd.append("--keep_images")
         if self.use_llm.get():
             cmd.append("--use_llm")
             cmd.extend(["--llm_service", self.llm_service.get()])
@@ -464,8 +530,13 @@ class MarkerGUI:
             cmd.append("--skip_existing")
         if self.one_by_one.get():
             cmd.append("--one_by_one")
-        # Mac 批量默认 1 worker，避免 OOM
-        cmd.extend(["--workers", "1"])
+        try:
+            cp = int(self.chunk_pages.get().strip() or "0")
+        except ValueError:
+            cp = 0
+        cmd.extend(["--chunk_pages", str(cp)])
+        # OCR 时 1 worker；纯文本可 2
+        cmd.extend(["--workers", "2" if self.disable_ocr.get() else "1"])
         return cmd
 
     def _build_env(self) -> dict[str, str]:
@@ -546,6 +617,8 @@ class MarkerGUI:
         self.progress.start(12)
         self._log(f"\n开始: {in_path}")
         self._log(f"输出: {out_path}")
+        self._log(f"进度文件: {out_path / '_marker_progress.md'}")
+        self._log("可点「打开输出目录」随时查看进度与中间结果。")
         self._log(f"命令: {' '.join(cmd)}\n")
 
         def worker() -> None:
