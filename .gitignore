@@ -177,3 +177,12 @@ cython_debug/
 .idea/
 
 .vscode/
+
+# Local deploy / secrets / runtime
+local.env
+.env
+output/
+logs/
+__pycache__/
+*.pyc
+.DS_Store
