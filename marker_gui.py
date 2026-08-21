@@ -545,6 +545,8 @@ class MarkerGUI:
         env["PYTHONIOENCODING"] = "utf-8"
         env.setdefault("SURYA_INFERENCE_BACKEND", "llamacpp")
         env.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")
+        # conda 与 Homebrew 各带一份 OpenMP；不设则 balanced 模式常 SIGABRT
+        env.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
         key = self.gemini_api_key.get().strip()
         if key:
             env["GOOGLE_API_KEY"] = key

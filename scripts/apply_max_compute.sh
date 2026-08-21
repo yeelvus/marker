@@ -17,6 +17,7 @@ export OMP_NUM_THREADS=4
 export MKL_NUM_THREADS=4
 export VECLIB_MAXIMUM_THREADS=4
 export TOKENIZERS_PARALLELISM=false
+export KMP_DUPLICATE_LIB_OK=TRUE
 export PATH="/opt/homebrew/bin:$PATH"
 
 echo "已设置本机算力相关环境变量："

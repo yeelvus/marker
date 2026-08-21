@@ -24,6 +24,8 @@ conda activate marker
 export SURYA_INFERENCE_BACKEND="${SURYA_INFERENCE_BACKEND:-llamacpp}"
 export PYTORCH_ENABLE_MPS_FALLBACK="${PYTORCH_ENABLE_MPS_FALLBACK:-1}"
 export PYTHONUNBUFFERED=1
+# conda PyTorch + Homebrew llama.cpp 各链一份 libomp，否则 marker_single 会 SIGABRT
+export KMP_DUPLICATE_LIB_OK="${KMP_DUPLICATE_LIB_OK:-TRUE}"
 
 # 确保 brew 的 llama-server 可用
 export PATH="/opt/homebrew/bin:$PATH"

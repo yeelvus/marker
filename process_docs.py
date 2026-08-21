@@ -198,6 +198,9 @@ def apply_mac_perf_env(env: dict[str, str], *, disable_ocr: bool) -> dict[str, s
     env.setdefault("MKL_NUM_THREADS", str(omp_threads))
     env.setdefault("VECLIB_MAXIMUM_THREADS", str(omp_threads))
     env.setdefault("TOKENIZERS_PARALLELISM", "false")
+    # conda PyTorch 与 Homebrew llama.cpp 各带一份 libomp；不设此项
+    # marker_single 会在 balanced 模式直接 SIGABRT（退出码 -6 / GUI 显示 1）
+    env.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
 
     # llama-server 额外参数：线程数、Flash Attention、提高进程优先级
     # 用户可在 local.env 用 LLAMA_CPP_EXTRA_ARGS 覆盖
@@ -214,6 +217,17 @@ def apply_mac_perf_env(env: dict[str, str], *, disable_ocr: bool) -> dict[str, s
         # 每槽上下文；过小截断，过大占内存
         env.setdefault("SURYA_INFERENCE_CTX_PER_SLOT", "8192")
     return env
+
+
+def _exit_code_hint(code: int) -> str:
+    if code in (-6, 134):
+        return (
+            f"退出码 {code}（进程被 SIGABRT 杀掉）。"
+            "常见原因：Mac 上 conda PyTorch 与 Homebrew llama.cpp 各带一份 libomp。"
+            "已设置 KMP_DUPLICATE_LIB_OK=TRUE；请再跑一次。"
+            "若仍失败，改用 GUI 的 fast 模式或 --preset speed。"
+        )
+    return f"退出码 {code}"
 
 
 def resolve_llm_service(name: str) -> str:
@@ -620,7 +634,7 @@ def convert_one_file(
         code = run_cmd(cmd, env)
         progress.clear_file_processing(file_path)
         if code != 0:
-            raise RuntimeError(f"退出码 {code}")
+            raise RuntimeError(_exit_code_hint(code))
         out_sub = progress.output_dir / file_path.stem
         mds = list(out_sub.glob("*.md")) if out_sub.is_dir() else []
         progress.update(
@@ -669,7 +683,7 @@ def convert_one_file(
         code = run_cmd(cmd, env)
         if code != 0:
             progress.clear_file_processing(file_path)
-            raise RuntimeError(f"页块 {start}-{end} 退出码 {code}")
+            raise RuntimeError(f"页块 {start}-{end} {_exit_code_hint(code)}")
 
         (cdir / "_chunk_status.txt").write_text(
             f"done pages {start}-{end}\n"
