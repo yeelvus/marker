@@ -1,51 +1,31 @@
 import base64
+import html
 import io
-import sys
+import re
 
-from PIL import Image
-import click
-import pypdfium2
-import streamlit as st
-from streamlit.runtime.uploaded_file_manager import UploadedFile
-
-from marker.config.parser import ConfigParser
-from marker.config.printer import CustomClickPrinter
-from marker.models import create_model_dict
 from marker.settings import settings
 
-
-@st.cache_data()
-def parse_args():
-    # Use to grab common cli options
-    @ConfigParser.common_options
-    def options_func():
-        pass
-
-    def extract_click_params(decorated_function):
-        if hasattr(decorated_function, "__click_params__"):
-            return decorated_function.__click_params__
-        return []
-
-    cmd = CustomClickPrinter("Marker app.")
-    extracted_params = extract_click_params(options_func)
-    cmd.params.extend(extracted_params)
-    ctx = click.Context(cmd)
-    try:
-        cmd_args = sys.argv[1:]
-        cmd.parse_args(ctx, cmd_args)
-        return ctx.params
-    except click.exceptions.ClickException as e:
-        return {"error": str(e)}
+_DANGEROUS_TAGS_RE = re.compile(
+    r"<\s*/?\s*(?:script|iframe|object|embed|applet|meta|link|base|form)\b[^>]*>",
+    re.IGNORECASE,
+)
+_EVENT_ATTR_RE = re.compile(
+    r"""\s+on[a-z]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)""",
+    re.IGNORECASE,
+)
+_JS_URL_RE = re.compile(
+    r"""(href|src)\s*=\s*(['"]?)\s*(?:javascript|vbscript)\s*:[^'">\s]*\2""",
+    re.IGNORECASE,
+)
 
 
-@st.cache_resource()
-def load_models():
-    return create_model_dict()
-
-
-def open_pdf(pdf_file):
-    stream = io.BytesIO(pdf_file.getvalue())
-    return pypdfium2.PdfDocument(stream)
+def sanitize_html_for_display(text: str) -> str:
+    if not text:
+        return ""
+    cleaned = _DANGEROUS_TAGS_RE.sub("", text)
+    cleaned = _EVENT_ATTR_RE.sub("", cleaned)
+    cleaned = _JS_URL_RE.sub(r'\1="#"', cleaned)
+    return cleaned
 
 
 def img_to_html(img, img_alt):
@@ -53,31 +33,6 @@ def img_to_html(img, img_alt):
     img.save(img_bytes, format=settings.OUTPUT_IMAGE_FORMAT)
     img_bytes = img_bytes.getvalue()
     encoded = base64.b64encode(img_bytes).decode()
-    img_html = f'<img src="data:image/{settings.OUTPUT_IMAGE_FORMAT.lower()};base64,{encoded}" alt="{img_alt}" style="max-width: 100%;">'
+    safe_alt = html.escape(str(img_alt or ""), quote=True)
+    img_html = f'<img src="data:image/{settings.OUTPUT_IMAGE_FORMAT.lower()};base64,{encoded}" alt="{safe_alt}" style="max-width: 100%;">'
     return img_html
-
-
-@st.cache_data()
-def get_page_image(pdf_file, page_num, dpi=96):
-    if "pdf" in pdf_file.type:
-        doc = open_pdf(pdf_file)
-        page = doc[page_num]
-        png_image = (
-            page.render(
-                scale=dpi / 72,
-            )
-            .to_pil()
-            .convert("RGB")
-        )
-    else:
-        png_image = Image.open(pdf_file).convert("RGB")
-    return png_image
-
-
-@st.cache_data()
-def page_count(pdf_file: UploadedFile):
-    if "pdf" in pdf_file.type:
-        doc = open_pdf(pdf_file)
-        return len(doc) - 1
-    else:
-        return 1

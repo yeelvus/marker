@@ -3,7 +3,6 @@ from typing import Dict, Type
 
 from PIL import Image, ImageDraw
 
-import datasets
 import pytest
 
 from marker.builders.document import DocumentBuilder
@@ -47,6 +46,11 @@ def recognition_model(model_dict):
 
 
 @pytest.fixture(scope="session")
+def indra_model(model_dict):
+    yield model_dict["indra_model"]
+
+
+@pytest.fixture(scope="session")
 def ocr_error_model(model_dict):
     yield model_dict["ocr_error_model"]
 
@@ -65,7 +69,19 @@ def config(request):
 
 @pytest.fixture(scope="session")
 def pdf_dataset():
-    return datasets.load_dataset("datalab-to/pdfs", split="train")
+    try:
+        import datasets
+
+        try:
+            return datasets.load_dataset("datalab-to/pdfs", split="train")
+        except Exception:
+            return datasets.load_dataset(
+                "datalab-to/pdfs",
+                split="train",
+                download_config=datasets.DownloadConfig(local_files_only=True),
+            )
+    except Exception as exc:
+        pytest.skip(f"datalab-to/pdfs dataset unavailable: {exc}")
 
 
 @pytest.fixture(scope="function")
