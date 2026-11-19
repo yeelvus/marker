@@ -181,7 +181,7 @@ class OcrBuilder(BaseBuilder):
                 image_size = page_size
 
             new_structure = []
-            for block_result in page_result.blocks:
+            for block_result in page_result.blocks or []:
                 block_type = surya_label_to_block_type(block_result.label)
                 if block_type is None or block_result.error:
                     continue
@@ -232,6 +232,10 @@ class OcrBuilder(BaseBuilder):
             for old_block in page.structure_blocks(document):
                 old_block.removed = True
             page.structure = new_structure
+            # Indra can return a page with no blocks. add_block never runs,
+            # so children stays None and later processors crash.
+            if page.children is None:
+                page.children = []
 
     def __call__(self, document: Document, provider: PdfProvider):
         rec_model = self.get_recognition_model()
@@ -667,7 +671,7 @@ class OcrBuilder(BaseBuilder):
             page_size = page.polygon.size
 
             new_structure = []
-            for block_result in page_result.blocks:
+            for block_result in page_result.blocks or []:
                 block_type = surya_label_to_block_type(block_result.label)
                 if block_type is None:
                     continue
@@ -697,6 +701,8 @@ class OcrBuilder(BaseBuilder):
             for old_block in page.structure_blocks(document):
                 old_block.removed = True
             page.structure = new_structure
+            if page.children is None:
+                page.children = []
 
     def apply_block_html(
         self,
