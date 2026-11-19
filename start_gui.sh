@@ -20,7 +20,8 @@ fi
 
 conda activate marker
 
-# Apple Silicon：surya VLM 走 llama.cpp
+# Apple Silicon：fast/no_ocr 走进程内 Indra ONNX。
+# balanced / vllm 的 Surya VLM 仍走 llama.cpp。
 export SURYA_INFERENCE_BACKEND="${SURYA_INFERENCE_BACKEND:-llamacpp}"
 export PYTORCH_ENABLE_MPS_FALLBACK="${PYTORCH_ENABLE_MPS_FALLBACK:-1}"
 export PYTHONUNBUFFERED=1

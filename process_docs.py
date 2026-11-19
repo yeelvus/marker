@@ -6,7 +6,7 @@ Marker 稳定批处理入口：支持单个文件或整个文件夹。
 用法:
   python process_docs.py -p /path/to/file.pdf -o /path/to/output
   python process_docs.py -p /path/to/folder -o /path/to/output --mode fast --preset speed
-  python process_docs.py -p /path/to/file.pdf -o /path/to/output --disable_ocr
+  python process_docs.py -p /path/to/file.pdf -o /path/to/output --mode no_ocr
   python process_docs.py -p /path/to/file.pdf -o /path/to/output --chunk_pages 8
 """
 
@@ -54,6 +54,18 @@ LLM_SERVICES = {
 }
 
 # 性能预设：在默认参数上覆盖（用户显式参数优先）
+# 与 Marker 2.2 CLI 一致。indra=fast，surya/accurate=vllm。
+MODE_CHOICES = [
+    "auto",
+    "no_ocr",
+    "fast",
+    "indra",
+    "balanced",
+    "vllm",
+    "surya",
+    "accurate",
+]
+
 PRESETS: dict[str, dict] = {
     "speed": {
         "mode": "fast",
@@ -61,7 +73,7 @@ PRESETS: dict[str, dict] = {
         "highres_image_dpi": 144,
         "disable_image_extraction": True,
         "chunk_pages": 8,
-        "desc": "最快：较低 DPI、不抽图、长文档分页块处理",
+        "desc": "最快：Indra ONNX、较低 DPI、不抽图、长文档分页块",
     },
     "balanced": {
         "mode": "fast",
@@ -69,7 +81,7 @@ PRESETS: dict[str, dict] = {
         "highres_image_dpi": 192,
         "disable_image_extraction": False,
         "chunk_pages": 0,
-        "desc": "均衡：默认 DPI，完整图片提取",
+        "desc": "Mac 默认：fast（进程内 Indra ONNX），完整图片提取",
     },
     "quality": {
         "mode": "balanced",
@@ -77,7 +89,7 @@ PRESETS: dict[str, dict] = {
         "highres_image_dpi": 192,
         "disable_image_extraction": False,
         "chunk_pages": 0,
-        "desc": "质量优先：VLM 布局（Mac 更慢）",
+        "desc": "质量优先：balanced 智能路由，难页走 Surya VLM",
     },
 }
 
@@ -746,8 +758,8 @@ def main() -> int:
     parser.add_argument(
         "--mode",
         default="fast",
-        choices=["fast", "balanced"],
-        help="Conversion mode (Mac 推荐 fast)",
+        choices=MODE_CHOICES,
+        help="转换模式。Mac 推荐 fast；纯文本层用 no_ocr；难页用 balanced；整页 VLM 用 vllm",
     )
     parser.add_argument(
         "--output_format",
@@ -828,9 +840,20 @@ def main() -> int:
     apply_preset_to_args(args)
 
     ensure_surya_llamacpp_grammar_patch()
-    if args.mode == "balanced":
+    if args.disable_ocr and args.mode not in ("no_ocr", "auto"):
         print(
-            "[INFO] balanced 模式在 Mac 上较慢；若异常请改用 --mode fast 或 --preset speed。",
+            "[INFO] 已指定 --disable_ocr，实际按 no_ocr（只用 PDF 文本层）运行。",
+            flush=True,
+        )
+    if args.mode in ("balanced", "vllm", "surya", "accurate"):
+        print(
+            "[INFO] 该模式会用到 Surya VLM（Mac 上走 llama.cpp），比 fast 慢。"
+            "电子 PDF 可改 --mode fast 或 --mode no_ocr。",
+            flush=True,
+        )
+    elif args.mode in ("fast", "indra") and not args.disable_ocr:
+        print(
+            "[INFO] fast：进程内 Indra ONNX 做版面和 OCR，不启动 llama-server。",
             flush=True,
         )
 

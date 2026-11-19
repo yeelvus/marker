@@ -54,16 +54,18 @@ SUPPORTED_EXTS = {
 }
 
 MODE_OPTIONS = [
-    ("fast", "fast（推荐 Mac：更快更稳，一般电子 PDF 优先用这个）"),
-    ("balanced", "balanced（VLM 布局+OCR，更慢；Mac 需 surya 补丁）"),
+    ("fast", "fast（Mac 推荐：进程内 Indra ONNX，不启 llama-server）"),
+    ("no_ocr", "no_ocr（只用 PDF 文本层，电子档最快）"),
+    ("balanced", "balanced（干净页走 Indra，表格/公式/扫描页走 Surya VLM）"),
+    ("vllm", "vllm（每页都走 Surya VLM，最慢；公式更稳）"),
 ]
 
 FORMAT_OPTIONS = ["markdown", "json", "html", "chunks"]
 
 PRESET_OPTIONS = [
-    ("balanced", "balanced（默认：质量/速度均衡）"),
-    ("speed", "speed（最快：低 DPI、不抽图、长文分页块）"),
-    ("quality", "quality（最准：balanced 模式，更慢）"),
+    ("balanced", "balanced（Mac 默认：fast + 正常 DPI）"),
+    ("speed", "speed（最快：fast、低 DPI、不抽图、分页块）"),
+    ("quality", "quality（最准：balanced 智能路由，难页走 VLM）"),
 ]
 
 LLM_SERVICE_OPTIONS = [
@@ -336,7 +338,7 @@ class MarkerGUI:
         self._log(f"处理脚本: {PROCESS_SCRIPT}")
         self._log("请选择文件或文件夹，然后点击「开始处理」。")
         self._log(
-            "加速建议：预设 speed；电子 PDF 勾选「禁用 OCR」；"
+            "加速建议：日常用 fast；电子 PDF 选 no_ocr 或勾选「禁用 OCR」；"
             "分页块>0 可在输出目录看到逐步生成的进度。"
         )
         self._log(
